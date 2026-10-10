@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#75cbed">
+  <meta name="description" content="糖果大缤纷消消乐 H5 网页版，本地游客存档。">
+  <title>糖果大缤纷消消乐</title>
+  <link rel="icon" type="image/png" href="app-icon.png">
+  <style>
+    *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#5da6d3}
+    body{display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 28%,#c7edff,#71b9dc 60%,#537da8);font-family:system-ui,"Microsoft YaHei",sans-serif}
+    #stage{position:relative;width:min(100vw,calc(100vh * 9 / 16));height:min(100vh,calc(100vw * 16 / 9));width:min(100vw,calc(100svh * 9 / 16));height:min(100svh,calc(100vw * 16 / 9));box-shadow:0 0 80px #344b7570;overflow:hidden;background:#8dd7ee;touch-action:none}
+    #unity-canvas{display:block;width:100%;height:100%;outline:none;touch-action:none}
+    #loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8%;background:linear-gradient(#477ac315,#945db530),url('cover.png') center/cover;color:#fff;text-align:center;z-index:10}
+    #loading[hidden]{display:none}#brand{margin:0 0 12%;font-size:clamp(27px,7vw,48px);font-weight:900;line-height:1.25;text-shadow:0 3px 0 #a346a5,0 5px 12px #5f336b}
+    #app-icon{width:25%;border-radius:25%;box-shadow:0 8px 28px #623d8e55;margin-bottom:6%}
+    #loading-card{width:100%;padding:20px 18px;border-radius:24px;background:#fffef2ed;color:#7c436d;box-shadow:0 8px 0 #c879a23d,0 18px 25px #63436c26}
+    #status{font-size:15px;line-height:1.65;margin:0 0 12px}progress{width:100%;height:12px;accent-color:#f270a7}
+    #start,#retry{margin-top:15px;min-height:48px;padding:10px 28px;background:linear-gradient(#ffa3c8,#f268a2);color:#fff;border:2px solid #ffe3ed;border-radius:24px;box-shadow:0 5px 0 #c44781;font:800 18px system-ui;cursor:pointer}
+    #start:active,#retry:active{transform:translateY(3px);box-shadow:0 2px 0 #c44781}button[hidden],progress[hidden]{display:none}
+    #note{position:absolute;bottom:max(2.4%,env(safe-area-inset-bottom));left:6%;right:6%;font-size:11px;line-height:1.7;text-shadow:0 1px 4px #413951}
+    #error{margin:12px 0 0;max-height:130px;overflow:auto;color:#a32853;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
+  </style>
+</head>
+<body>
+  <main id="stage" aria-label="糖果大缤纷消消乐">
+    <canvas id="unity-canvas" width="540" height="960" tabindex="0" aria-label="游戏画面，支持点击和滑动交换糖果"></canvas>
+    <section id="loading" aria-live="polite">
+      <img id="app-icon" src="app-icon.png" alt="糖果游戏图标">
+      <h1 id="brand">糖果大缤纷<br>消消乐</h1>
+      <div id="loading-card">
+        <p id="status">正在装满甜蜜糖果…</p>
+        <progress id="progress" max="100" value="0" aria-label="游戏加载进度"></progress>
+        <button id="start" hidden>点击进入游戏</button>
+        <button id="retry" hidden>重新加载</button>
+        <p id="error"></p>
+      </div>
+      <p id="note">适龄提示：8周岁以上 · 合理安排游戏时间<br>本地存档仅保存在当前网站的浏览器中，清理网站数据可能丢失进度。<br>上海须赞科技有限公司</p>
+    </section>
+  </main>
+  <script>
+    'use strict';
+    const canvas=document.getElementById('unity-canvas');
+    const overlay=document.getElementById('loading');
+    const statusText=document.getElementById('status');
+    const progress=document.getElementById('progress');
+    const start=document.getElementById('start');
+    const retry=document.getElementById('retry');
+    const errorText=document.getElementById('error');
+    const audioContexts=[];
+    let unityInstance=null;
+    window.TangGuoHost={ready:false,started:false,lastError:null,audioStates:()=>audioContexts.map(c=>c.state),requestSnapshot:()=>{
+      if(unityInstance)unityInstance.SendMessage('WebPlatformBridge','RequestSnapshot','');return window.TangGuoHost.snapshot;
+    },exit:()=>{
+      overlay.hidden=false;statusText.textContent='已退出游戏，本地进度已保存。';progress.hidden=true;start.hidden=true;retry.hidden=false;errorText.textContent='您可以关闭此页面，或重新加载继续游戏。';
+    }};
+    // Resume every Unity-created WebAudio context inside a real user gesture.
+    for(const name of ['AudioContext','webkitAudioContext']){
+      const Original=window[name];
+      if(Original)window[name]=new Proxy(Original,{construct(target,args,newTarget){const context=Reflect.construct(target,args,newTarget);audioContexts.push(context);return context;}});
+    }
+    function resumeAudio(){for(const context of audioContexts)if(context.state==='suspended')context.resume().catch(()=>{});}
+    function sendVisibility(){if(unityInstance)unityInstance.SendMessage('WebPlatformBridge','OnPageVisibility',document.hidden?'hidden':'visible');}
+    function fail(message){window.TangGuoHost.lastError=String(message);statusText.textContent='游戏暂时无法加载';errorText.textContent=String(message);progress.hidden=true;start.hidden=true;retry.hidden=false;}
+    retry.addEventListener('click',()=>location.reload());
+    start.addEventListener('click',()=>{
+      resumeAudio();unityInstance.SendMessage('WebPlatformBridge','OnUserGesture','');overlay.hidden=true;canvas.focus();window.TangGuoHost.started=true;sendVisibility();
+    });
+    canvas.addEventListener('pointerdown',resumeAudio,{passive:true});
+    document.addEventListener('visibilitychange',sendVisibility);
+    document.addEventListener('contextmenu',event=>event.preventDefault());
+    const buildUrl='Build';
+    const config={
+      dataUrl:buildUrl+'/H5.data.unityweb',
+      frameworkUrl:buildUrl+'/H5.framework.js.unityweb',
+      codeUrl:buildUrl+'/H5.wasm.unityweb',
+      streamingAssetsUrl:'StreamingAssets',
+      companyName:'上海须赞科技有限公司',productName:'糖果大缤纷消消乐',productVersion:'1.0.1',
+      matchWebGLToCanvasSize:true,devicePixelRatio:Math.min(window.devicePixelRatio||1,1.5),
+      showBanner:(message,type)=>{if(type==='error')fail(message);else console.warn(message);}
+    };
+    if(location.protocol==='file:')fail('请通过 HTTP/HTTPS 打开。不要直接双击 index.html；解压后使用“启动H5.cmd”或部署到网站。');
+    else if(!window.WebAssembly)fail('当前浏览器不支持 WebAssembly，请升级浏览器后重试。');
+    else{
+      const loader=document.createElement('script');loader.src=buildUrl+'/H5.loader.js';
+      loader.onerror=()=>fail('加载器未找到，请完整上传 index.html、Build 和其它静态文件，保持原目录结构。');
+      loader.onload=()=>createUnityInstance(canvas,config,value=>{progress.value=Math.round(value*100);statusText.textContent='正在准备甜蜜旅程 · '+Math.round(value*100)+'%';})
+        .then(instance=>{unityInstance=instance;window.TangGuoHost.ready=true;progress.hidden=true;statusText.textContent='糖果世界已准备好，点击进入并开启音乐';start.hidden=false;sendVisibility();})
+        .catch(error=>fail(error));
+      document.body.appendChild(loader);
+    }
+  </script>
+</body>
+</html>
